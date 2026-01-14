@@ -33,6 +33,7 @@ pub mod clipboard;
 pub mod config;
 pub mod desktop;
 pub mod error;
+pub mod input;
 pub mod logging;
 pub mod network;
 pub mod security;
