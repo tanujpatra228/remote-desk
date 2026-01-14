@@ -1,14 +1,6 @@
 //! Clipboard module for RemoteDesk
 //!
-//! This module handles clipboard synchronization:
-//! - Clipboard monitoring
-//! - Clipboard content serialization
-//! - Bidirectional sync
-//!
-//! # Status
-//!
-//! This module is currently a stub and will be implemented in Phase 2, Milestone 2.1
+//! This module will handle cross-platform clipboard synchronization.
+//! Implementation coming in Phase 2.
 
-// TODO: Implement clipboard monitoring
-// TODO: Implement clipboard sync protocol
-// TODO: Support text, images, and rich text
+// Placeholder module - to be implemented
