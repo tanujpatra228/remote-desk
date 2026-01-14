@@ -40,6 +40,8 @@ argon2 = "0.5"
 # Utilities
 rand = "0.8"
 uuid = { version = "1.6", features = ["v4", "serde"] }
+hostname = "0.4"
+sha2 = "0.10"
 
 # Logging
 tracing = "0.1"

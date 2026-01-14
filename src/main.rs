@@ -6,6 +6,7 @@ use remote_desk::{
     config::ConfigManager,
     error::Result,
     logging::{init_logging, LogLevel},
+    network::{ConnectionManager, ManagerConfig},
     security::{DeviceIdManager, PasswordManager},
 };
 use tracing::{error, info, warn};
@@ -14,6 +15,7 @@ use tracing::{error, info, warn};
 struct App {
     config_manager: ConfigManager,
     device_id: remote_desk::security::DeviceId,
+    connection_manager: ConnectionManager,
 }
 
 impl App {
@@ -22,7 +24,7 @@ impl App {
     /// # Errors
     ///
     /// Returns error if initialization fails
-    fn initialize() -> Result<Self> {
+    async fn initialize() -> Result<Self> {
         info!("Initializing RemoteDesk...");
 
         // Load or create configuration
@@ -56,9 +58,30 @@ impl App {
         info!("Security - Session timeout: {} minutes", config.security.session_timeout_minutes);
         info!("Clipboard - Enabled: {}", config.clipboard.enabled);
 
+        // Create connection manager
+        let manager_config = ManagerConfig {
+            device_id,
+            device_name: hostname::get()
+                .ok()
+                .and_then(|h| h.into_string().ok())
+                .unwrap_or_else(|| format!("RemoteDesk-{}", device_id.as_u32())),
+            service_port: config.network.listen_port,
+            password_hash_path: config_manager.password_hash_path(),
+            max_connections: config.network.max_connections as usize,
+        };
+
+        let connection_manager = ConnectionManager::new(manager_config);
+
+        // Start connection manager
+        if let Err(e) = connection_manager.start().await {
+            error!("Failed to start connection manager: {}", e);
+            // Continue anyway for now
+        }
+
         Ok(Self {
             config_manager,
             device_id,
+            connection_manager,
         })
     }
 
@@ -171,10 +194,12 @@ impl App {
                 info!("  connect <ID> [password]  - Connect to another device");
                 info!("                             Example: connect 123 456 789");
                 info!("                             Example: connect 123456789 mypassword");
+                info!("  disconnect <ID>          - Disconnect from a device");
+                info!("                             Example: disconnect 123 456 789");
                 info!("  password <new_password>  - Set a password for this device");
                 info!("  remove-password          - Remove the password (use manual accept)");
                 info!("  id                       - Show your device ID");
-                info!("  status                   - Show current status");
+                info!("  status                   - Show current status and connections");
                 info!("  help                     - Show this help message");
                 info!("  quit / exit              - Exit the application");
                 info!("");
@@ -231,9 +256,31 @@ impl App {
                             info!("No password provided (manual accept required)");
                         }
                         info!("");
-                        warn!("⚠️  Network functionality not implemented yet (Milestone 1.2)");
-                        warn!("   This will be available in the next phase.");
-                        info!("");
+
+                        // Parse the device ID
+                        let remote_id = match id_str.parse::<remote_desk::security::DeviceId>() {
+                            Ok(id) => id,
+                            Err(e) => {
+                                error!("Failed to parse device ID: {}", e);
+                                return Ok(());
+                            }
+                        };
+
+                        // Attempt connection
+                        match self.connection_manager.connect(remote_id, password.map(|s| s.to_string())).await {
+                            Ok(_) => {
+                                info!("✓ Connection initiated successfully!");
+                                info!("  Status: Connected to {}", formatted_id);
+                                info!("");
+                                info!("📝 Note: This is a simulated connection for Milestone 1.2");
+                                info!("   Full QUIC networking will be added in the next iteration.");
+                                info!("");
+                            }
+                            Err(e) => {
+                                error!("✗ Connection failed: {}", e);
+                                info!("");
+                            }
+                        }
                     }
                     Err(e) => {
                         error!("Invalid device ID: {}", e);
@@ -300,11 +347,61 @@ impl App {
                     info!("  Mode: 🔓 Manual Accept");
                 }
 
-                info!("  Network: Not connected (Milestone 1.2 pending)");
+                // Get active connections
+                let active_connections = self.connection_manager.get_active_connections().await;
+
+                if active_connections.is_empty() {
+                    info!("  Connections: None");
+                } else {
+                    info!("  Connections: {} active", active_connections.len());
+                    for conn_info in active_connections {
+                        info!(
+                            "    - {} ({}) [{}]",
+                            conn_info.remote_id.format_with_spaces(),
+                            conn_info.remote_name,
+                            conn_info.role
+                        );
+                    }
+                }
+
                 info!("");
+            }
+            "disconnect" => {
+                if parts.len() < 2 {
+                    error!("Usage: disconnect <ID>");
+                    error!("Example: disconnect 123 456 789");
+                    return Ok(());
+                }
+
+                // Parse the ID
+                let id_str = if parts.len() >= 4 && parts[1].parse::<u32>().is_ok() {
+                    format!("{}{}{}", parts[1], parts[2], parts[3])
+                } else {
+                    parts[1].to_string()
+                };
+
+                match id_str.parse::<remote_desk::security::DeviceId>() {
+                    Ok(remote_id) => {
+                        match self.connection_manager.disconnect(remote_id).await {
+                            Ok(_) => {
+                                info!("");
+                                info!("✓ Disconnected from {}", remote_id.format_with_spaces());
+                                info!("");
+                            }
+                            Err(e) => {
+                                error!("Failed to disconnect: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Invalid device ID: {}", e);
+                    }
+                }
             }
             "quit" | "exit" => {
                 info!("Exiting...");
+                // Stop connection manager
+                self.connection_manager.stop().await;
             }
             _ => {
                 error!("Unknown command: {}", parts[0]);
@@ -331,7 +428,7 @@ async fn main() {
     info!("Starting RemoteDesk v{}", env!("CARGO_PKG_VERSION"));
 
     // Initialize and run application
-    match App::initialize() {
+    match App::initialize().await {
         Ok(app) => {
             if let Err(e) = app.run().await {
                 error!("Application error: {}", e);

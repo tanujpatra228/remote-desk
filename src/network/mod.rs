@@ -3,14 +3,20 @@
 //! This module handles all networking functionality including:
 //! - P2P connection management
 //! - Peer discovery (mDNS)
-//! - NAT traversal (STUN/TURN)
 //! - Protocol implementation
-//!
-//! # Status
-//!
-//! This module is currently a stub and will be implemented in Phase 1, Milestone 1.2
+//! - Connection lifecycle management
 
-// TODO: Implement connection management
-// TODO: Implement peer discovery
-// TODO: Implement NAT traversal
-// TODO: Implement protocol handlers
+pub mod connection;
+pub mod discovery;
+pub mod manager;
+pub mod protocol;
+
+// Re-export commonly used types
+pub use connection::{Connection, ConnectionInfo, ConnectionRole, ConnectionState, ConnectionStats};
+pub use discovery::{PeerDiscovery, PeerInfo, DEFAULT_SERVICE_PORT};
+pub use manager::{ConnectionEvent, ConnectionManager, ManagerConfig};
+pub use protocol::{
+    Capability, ConnectionAccept, ConnectionReject, ConnectionRequest, DesktopInfo, Disconnect,
+    DisconnectReason, ErrorCode, ErrorMessage, Heartbeat, Message, MessagePayload, MessageType,
+    RejectReason, CURRENT_PROTOCOL_VERSION,
+};

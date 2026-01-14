@@ -140,6 +140,12 @@ impl From<toml::ser::Error> for RemoteDeskError {
     }
 }
 
+impl From<SecurityError> for NetworkError {
+    fn from(err: SecurityError) -> Self {
+        NetworkError::ProtocolError(err.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
