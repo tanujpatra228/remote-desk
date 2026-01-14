@@ -8,7 +8,7 @@ use remote_desk::{
     logging::{init_logging, LogLevel},
     security::{DeviceIdManager, PasswordManager},
 };
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// Application state
 struct App {
@@ -93,17 +93,224 @@ impl App {
         }
 
         info!("");
-        info!("  Press Ctrl+C to exit");
+        info!("  Commands:");
+        info!("    Type 'connect <ID>' to connect to another device");
+        info!("    Type 'password <new_password>' to set a password");
+        info!("    Type 'remove-password' to remove password");
+        info!("    Type 'help' for all commands");
+        info!("    Type 'quit' or press Ctrl+C to exit");
         info!("");
 
         // TODO: Start network services
         // TODO: Start UI (system tray)
         // TODO: Handle incoming connections
 
-        // For now, just wait
-        tokio::signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
+        // Handle CLI input
+        self.handle_cli_input().await?;
 
         info!("Shutting down RemoteDesk...");
+
+        Ok(())
+    }
+
+    /// Handles CLI input for basic commands
+    async fn handle_cli_input(&self) -> Result<()> {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        use tokio::io::stdin;
+
+        let mut reader = BufReader::new(stdin()).lines();
+
+        loop {
+            // Use tokio::select to handle both Ctrl+C and user input
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    break;
+                }
+                line = reader.next_line() => {
+                    match line {
+                        Ok(Some(input)) => {
+                            let input = input.trim();
+                            if input.is_empty() {
+                                continue;
+                            }
+
+                            if let Err(e) = self.handle_command(input).await {
+                                error!("Command error: {}", e);
+                            }
+
+                            // Check if we should exit
+                            if input == "quit" || input == "exit" {
+                                break;
+                            }
+                        }
+                        Ok(None) => break, // EOF
+                        Err(e) => {
+                            error!("Failed to read input: {}", e);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handles a single command
+    async fn handle_command(&self, input: &str) -> Result<()> {
+        let parts: Vec<&str> = input.split_whitespace().collect();
+
+        if parts.is_empty() {
+            return Ok(());
+        }
+
+        match parts[0] {
+            "help" => {
+                info!("");
+                info!("Available commands:");
+                info!("  connect <ID> [password]  - Connect to another device");
+                info!("                             Example: connect 123 456 789");
+                info!("                             Example: connect 123456789 mypassword");
+                info!("  password <new_password>  - Set a password for this device");
+                info!("  remove-password          - Remove the password (use manual accept)");
+                info!("  id                       - Show your device ID");
+                info!("  status                   - Show current status");
+                info!("  help                     - Show this help message");
+                info!("  quit / exit              - Exit the application");
+                info!("");
+            }
+            "connect" => {
+                if parts.len() < 2 {
+                    error!("Usage: connect <ID> [password]");
+                    error!("Example: connect 123 456 789");
+                    error!("Example: connect 123456789 mypassword");
+                    return Ok(());
+                }
+
+                // Parse the ID (could be with or without spaces)
+                let id_str = if parts.len() >= 4 && parts[1].parse::<u32>().is_ok()
+                              && parts[2].parse::<u32>().is_ok()
+                              && parts[3].parse::<u32>().is_ok() {
+                    // Format: connect 123 456 789 [password]
+                    format!("{}{}{}", parts[1], parts[2], parts[3])
+                } else {
+                    // Format: connect 123456789 [password]
+                    parts[1].to_string()
+                };
+
+                // Get password if provided
+                let password = if parts.len() >= 4 && parts[1].parse::<u32>().is_ok() {
+                    // Format was: connect 123 456 789 password
+                    if parts.len() > 4 {
+                        Some(parts[4])
+                    } else {
+                        None
+                    }
+                } else if parts.len() >= 3 {
+                    // Format was: connect 123456789 password
+                    Some(parts[2])
+                } else {
+                    None
+                };
+
+                // Validate the ID
+                match remote_desk::security::DeviceId::validate(&id_str) {
+                    Ok(_) => {
+                        let formatted_id = id_str.chars()
+                            .collect::<Vec<_>>()
+                            .chunks(3)
+                            .map(|chunk| chunk.iter().collect::<String>())
+                            .collect::<Vec<_>>()
+                            .join(" ");
+
+                        info!("");
+                        info!("Connecting to device: {}", formatted_id);
+                        if let Some(pwd) = password {
+                            info!("Using password: {}", "*".repeat(pwd.len()));
+                        } else {
+                            info!("No password provided (manual accept required)");
+                        }
+                        info!("");
+                        warn!("⚠️  Network functionality not implemented yet (Milestone 1.2)");
+                        warn!("   This will be available in the next phase.");
+                        info!("");
+                    }
+                    Err(e) => {
+                        error!("Invalid device ID: {}", e);
+                        error!("Device ID must be 9 digits (e.g., 123456789 or 123 456 789)");
+                    }
+                }
+            }
+            "password" => {
+                if parts.len() < 2 {
+                    error!("Usage: password <new_password>");
+                    error!("Example: password MySecurePassword123");
+                    return Ok(());
+                }
+
+                let new_password = parts[1..].join(" ");
+
+                match PasswordManager::set_password(
+                    &self.config_manager.password_hash_path(),
+                    &new_password
+                ) {
+                    Ok(_) => {
+                        info!("");
+                        info!("✓ Password set successfully!");
+                        info!("  Password Access Mode is now ENABLED");
+                        info!("  Connections with this password will be accepted automatically.");
+                        info!("");
+                    }
+                    Err(e) => {
+                        error!("Failed to set password: {}", e);
+                    }
+                }
+            }
+            "remove-password" => {
+                match PasswordManager::remove_password(&self.config_manager.password_hash_path()) {
+                    Ok(_) => {
+                        info!("");
+                        info!("✓ Password removed successfully!");
+                        info!("  Manual Accept Mode is now ENABLED");
+                        info!("  You will need to accept each connection manually.");
+                        info!("");
+                    }
+                    Err(e) => {
+                        error!("Failed to remove password: {}", e);
+                    }
+                }
+            }
+            "id" => {
+                info!("");
+                info!("Your Device ID: {}", self.device_id.format_with_spaces());
+                info!("");
+            }
+            "status" => {
+                info!("");
+                info!("Status:");
+                info!("  Device ID: {}", self.device_id.format_with_spaces());
+
+                let password_set = PasswordManager::is_password_set(
+                    &self.config_manager.password_hash_path()
+                );
+
+                if password_set {
+                    info!("  Mode: 🔐 Password Access");
+                } else {
+                    info!("  Mode: 🔓 Manual Accept");
+                }
+
+                info!("  Network: Not connected (Milestone 1.2 pending)");
+                info!("");
+            }
+            "quit" | "exit" => {
+                info!("Exiting...");
+            }
+            _ => {
+                error!("Unknown command: {}", parts[0]);
+                error!("Type 'help' for available commands");
+            }
+        }
 
         Ok(())
     }

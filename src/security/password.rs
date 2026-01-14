@@ -80,7 +80,7 @@ impl PasswordManager {
     /// assert!(PasswordManager::verify_password("wrong_password", &hash).is_err());
     /// ```
     pub fn verify_password(password: &str, hash: &str) -> SecurityResult<()> {
-        let parsed_hash = PasswordHash::new(hash).map_err(|e| {
+        let parsed_hash = PasswordHash::new(hash).map_err(|_e| {
             SecurityError::PasswordVerificationFailed
         })?;
 
