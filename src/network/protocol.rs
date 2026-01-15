@@ -71,6 +71,9 @@ pub enum MessagePayload {
     Disconnect(Disconnect),
     Heartbeat(Heartbeat),
     Error(ErrorMessage),
+    ScreenFrame(ScreenFrameData),
+    KeyboardEvent(KeyboardEventData),
+    MouseEvent(MouseEventData),
 }
 
 /// Connection request message
@@ -143,6 +146,102 @@ pub struct ErrorMessage {
 
     /// Error message
     pub message: String,
+}
+
+/// Screen frame data message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScreenFrameData {
+    /// Frame sequence number
+    pub sequence: u64,
+
+    /// Frame width in pixels
+    pub width: u32,
+
+    /// Frame height in pixels
+    pub height: u32,
+
+    /// Frame format
+    pub format: FrameFormat,
+
+    /// Compressed frame data
+    pub data: Vec<u8>,
+
+    /// Timestamp when frame was captured (milliseconds since epoch)
+    pub timestamp: u64,
+}
+
+/// Frame encoding format
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum FrameFormat {
+    /// JPEG compression
+    Jpeg = 1,
+    /// PNG compression (lossless)
+    Png = 2,
+    /// Raw RGBA (no compression)
+    Raw = 3,
+}
+
+/// Keyboard event data message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyboardEventData {
+    /// Event type (press or release)
+    pub event_type: KeyboardEventTypeData,
+
+    /// Key code
+    pub key: u16,
+
+    /// Timestamp when event occurred (milliseconds since epoch)
+    pub timestamp: u64,
+}
+
+/// Keyboard event type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum KeyboardEventTypeData {
+    /// Key pressed
+    KeyPress = 1,
+    /// Key released
+    KeyRelease = 2,
+}
+
+/// Mouse event data message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MouseEventData {
+    /// Event type
+    pub event_type: MouseEventTypeData,
+
+    /// Timestamp when event occurred (milliseconds since epoch)
+    pub timestamp: u64,
+}
+
+/// Mouse event type
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MouseEventTypeData {
+    /// Mouse moved to absolute position
+    Move {
+        /// X coordinate
+        x: i32,
+        /// Y coordinate
+        y: i32,
+    },
+    /// Mouse button pressed
+    ButtonPress {
+        /// Button identifier
+        button: u8,
+    },
+    /// Mouse button released
+    ButtonRelease {
+        /// Button identifier
+        button: u8,
+    },
+    /// Mouse wheel scrolled
+    Wheel {
+        /// Horizontal scroll delta
+        delta_x: i32,
+        /// Vertical scroll delta
+        delta_y: i32,
+    },
 }
 
 /// Reason for connection rejection
@@ -333,6 +432,85 @@ impl DesktopInfo {
             screen_height: 1080,
             screen_count: 1,
         }
+    }
+}
+
+impl ScreenFrameData {
+    /// Creates a new screen frame data message
+    pub fn new(
+        sequence: u64,
+        width: u32,
+        height: u32,
+        format: FrameFormat,
+        data: Vec<u8>,
+    ) -> Self {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
+        Self {
+            sequence,
+            width,
+            height,
+            format,
+            data,
+            timestamp,
+        }
+    }
+}
+
+impl KeyboardEventData {
+    /// Creates a new keyboard event message
+    pub fn new(event_type: KeyboardEventTypeData, key: u16) -> Self {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
+        Self {
+            event_type,
+            key,
+            timestamp,
+        }
+    }
+}
+
+impl MouseEventData {
+    /// Creates a new mouse event message
+    pub fn new(event_type: MouseEventTypeData) -> Self {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
+        Self {
+            event_type,
+            timestamp,
+        }
+    }
+
+    /// Creates a mouse move event
+    pub fn move_to(x: i32, y: i32) -> Self {
+        Self::new(MouseEventTypeData::Move { x, y })
+    }
+
+    /// Creates a mouse button press event
+    pub fn button_press(button: u8) -> Self {
+        Self::new(MouseEventTypeData::ButtonPress { button })
+    }
+
+    /// Creates a mouse button release event
+    pub fn button_release(button: u8) -> Self {
+        Self::new(MouseEventTypeData::ButtonRelease { button })
+    }
+
+    /// Creates a mouse wheel event
+    pub fn wheel(delta_x: i32, delta_y: i32) -> Self {
+        Self::new(MouseEventTypeData::Wheel { delta_x, delta_y })
     }
 }
 

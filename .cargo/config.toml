@@ -1,0 +1,2 @@
+[build]
+rustflags = ["-L", "/home/hp/Tanuj/Projects/Rust/remote-desk/target/lib"]

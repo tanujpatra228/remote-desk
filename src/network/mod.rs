@@ -17,6 +17,7 @@ pub use discovery::{PeerDiscovery, PeerInfo, DEFAULT_SERVICE_PORT};
 pub use manager::{ConnectionEvent, ConnectionManager, ManagerConfig};
 pub use protocol::{
     Capability, ConnectionAccept, ConnectionReject, ConnectionRequest, DesktopInfo, Disconnect,
-    DisconnectReason, ErrorCode, ErrorMessage, Heartbeat, Message, MessagePayload, MessageType,
-    RejectReason, CURRENT_PROTOCOL_VERSION,
+    DisconnectReason, ErrorCode, ErrorMessage, FrameFormat, Heartbeat, KeyboardEventData,
+    KeyboardEventTypeData, Message, MessagePayload, MessageType, MouseEventData,
+    MouseEventTypeData, RejectReason, ScreenFrameData, CURRENT_PROTOCOL_VERSION,
 };

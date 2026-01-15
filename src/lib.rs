@@ -37,6 +37,7 @@ pub mod input;
 pub mod logging;
 pub mod network;
 pub mod security;
+pub mod session;
 pub mod ui;
 
 // Re-export commonly used types at crate root

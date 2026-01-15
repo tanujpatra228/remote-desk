@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 // mDNS constants (avoiding magic numbers)
 const SERVICE_TYPE: &str = "_remotedesk._udp.local.";

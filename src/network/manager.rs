@@ -5,9 +5,8 @@
 
 use crate::error::{NetworkError, NetworkResult};
 use crate::network::{
-    Connection, ConnectionInfo, ConnectionReject, ConnectionRequest, ConnectionRole,
-    ConnectionState, DesktopInfo, MessagePayload, MessageType, PeerDiscovery, PeerInfo,
-    RejectReason, Message,
+    Connection, ConnectionInfo, ConnectionRequest, ConnectionRole,
+    ConnectionState, PeerDiscovery, PeerInfo, RejectReason,
 };
 use crate::security::{DeviceId, PasswordManager};
 use std::collections::HashMap;
@@ -15,7 +14,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// Connection manager configuration
 #[derive(Debug, Clone)]
@@ -211,7 +210,7 @@ impl ConnectionManager {
             None
         };
 
-        let request = ConnectionRequest::new(
+        let _request = ConnectionRequest::new(
             self.config.device_id,
             self.config.device_name.clone(),
             remote_id,
@@ -312,7 +311,7 @@ impl ConnectionManager {
     pub async fn handle_connection_request(
         &self,
         request: ConnectionRequest,
-        remote_addr: SocketAddr,
+        _remote_addr: SocketAddr,
     ) -> NetworkResult<()> {
         let remote_id = DeviceId::from_u32(request.client_id)?;
 
@@ -327,7 +326,7 @@ impl ConnectionManager {
 
         if password_required {
             // Verify password
-            if let Some(password_hash) = request.password_hash {
+            if let Some(_password_hash) = request.password_hash {
                 // TODO: Implement proper password verification
                 // For now, just accept it
                 debug!("Password authentication enabled, verifying...");
@@ -383,7 +382,7 @@ impl ConnectionManager {
     pub async fn reject_connection(
         &self,
         remote_id: DeviceId,
-        reason: RejectReason,
+        _reason: RejectReason,
     ) -> NetworkResult<()> {
         info!("Rejecting connection from {}", remote_id.format_with_spaces());
 

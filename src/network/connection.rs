@@ -3,14 +3,12 @@
 //! This module handles individual P2P connections including state management,
 //! lifecycle, and communication.
 
-use crate::error::{NetworkError, NetworkResult};
-use crate::network::protocol::{Message, MessagePayload, MessageType};
 use crate::security::DeviceId;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
-use tracing::{debug, info, warn};
+use tracing::debug;
 
 // Connection constants (avoiding magic numbers)
 const HEARTBEAT_INTERVAL_SECS: u64 = 5;

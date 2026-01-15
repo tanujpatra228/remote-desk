@@ -1,6 +1,10 @@
 //! UI module for RemoteDesk
 //!
-//! This module will handle system tray and UI dialogs.
-//! Implementation coming in Phase 1, Milestone 1.7.
+//! This module handles the system tray icon, dialogs, and user interface.
 
-// Placeholder module - to be implemented
+pub mod app;
+pub mod dialogs;
+pub mod tray;
+
+pub use app::{App, AppCommand};
+pub use tray::TrayIcon;

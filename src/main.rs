@@ -9,7 +9,7 @@ use remote_desk::{
     network::{ConnectionManager, ManagerConfig},
     security::{DeviceIdManager, PasswordManager},
 };
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 /// Application state
 struct App {
@@ -138,15 +138,21 @@ impl App {
 
     /// Handles CLI input for basic commands
     async fn handle_cli_input(&self) -> Result<()> {
-        use tokio::io::{AsyncBufReadExt, BufReader};
-        use tokio::io::stdin;
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        use tokio::io::{stdin, stdout};
 
         let mut reader = BufReader::new(stdin()).lines();
+        let mut stdout = stdout();
 
         loop {
+            // Show prompt
+            let _ = stdout.write_all(b"remotedesk> ").await;
+            let _ = stdout.flush().await;
+
             // Use tokio::select to handle both Ctrl+C and user input
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
+                    println!();
                     break;
                 }
                 line = reader.next_line() => {
@@ -248,20 +254,19 @@ impl App {
                             .collect::<Vec<_>>()
                             .join(" ");
 
-                        info!("");
-                        info!("Connecting to device: {}", formatted_id);
+                        println!();
+                        println!("Connecting to device: {}", formatted_id);
                         if let Some(pwd) = password {
-                            info!("Using password: {}", "*".repeat(pwd.len()));
+                            println!("Using password: {}", "*".repeat(pwd.len()));
                         } else {
-                            info!("No password provided (manual accept required)");
+                            println!("No password provided (manual accept required on remote)");
                         }
-                        info!("");
 
                         // Parse the device ID
                         let remote_id = match id_str.parse::<remote_desk::security::DeviceId>() {
                             Ok(id) => id,
                             Err(e) => {
-                                error!("Failed to parse device ID: {}", e);
+                                println!("Failed to parse device ID: {}", e);
                                 return Ok(());
                             }
                         };
@@ -269,22 +274,23 @@ impl App {
                         // Attempt connection
                         match self.connection_manager.connect(remote_id, password.map(|s| s.to_string())).await {
                             Ok(_) => {
-                                info!("✓ Connection initiated successfully!");
-                                info!("  Status: Connected to {}", formatted_id);
-                                info!("");
-                                info!("📝 Note: This is a simulated connection for Milestone 1.2");
-                                info!("   Full QUIC networking will be added in the next iteration.");
-                                info!("");
+                                println!();
+                                println!("✓ Connection initiated successfully!");
+                                println!("  Status: Connected to {}", formatted_id);
+                                println!();
+                                println!("NOTE: This is a simulated local connection (Milestone 1.2)");
+                                println!("      Actual network connectivity requires QUIC implementation.");
+                                println!("      Use 'status' to see the connection state.");
+                                println!();
                             }
                             Err(e) => {
-                                error!("✗ Connection failed: {}", e);
-                                info!("");
+                                println!("✗ Connection failed: {}", e);
                             }
                         }
                     }
                     Err(e) => {
-                        error!("Invalid device ID: {}", e);
-                        error!("Device ID must be 9 digits (e.g., 123456789 or 123 456 789)");
+                        println!("Invalid device ID: {}", e);
+                        println!("Device ID must be 9 digits (e.g., 123456789 or 123 456 789)");
                     }
                 }
             }

@@ -45,6 +45,12 @@ sha2 = "0.10"
 bytes = "1.5"                # Efficient byte buffer manipulation
 image = "0.24"               # Image processing and encoding
 
+# UI
+tray-icon = "0.14"           # System tray support
+eframe = "0.27"              # egui framework for native windows
+egui = "0.27"                # Immediate mode GUI
+qrcode = "0.14"              # QR code generation for peer IDs
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
