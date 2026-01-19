@@ -3,15 +3,18 @@
 //! This module handles desktop-related functionality including:
 //! - Screen capture across multiple platforms
 //! - Frame encoding and compression
+//! - Frame decoding for display
 //! - Display management
 //! - Performance statistics
 
 pub mod capture;
+pub mod decoder;
 pub mod encoder;
 pub mod types;
 
 // Re-export commonly used types
 pub use capture::ScreenCapturer;
+pub use decoder::{DecoderStats, FrameDecoder};
 pub use encoder::{compress_zstd, decompress_zstd, FrameEncoder};
 pub use types::{
     CaptureConfig, CaptureStats, DisplayInfo, EncodedFrame, Frame, FrameFormat, Fps, Quality,

@@ -22,6 +22,10 @@ pub enum RemoteDeskError {
     #[error("Network error: {0}")]
     Network(#[from] NetworkError),
 
+    /// Session management errors
+    #[error("Session error: {0}")]
+    Session(#[from] SessionError),
+
     /// I/O errors
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
@@ -110,6 +114,40 @@ pub enum NetworkError {
     Disconnected(String),
 }
 
+/// Session management errors
+#[derive(Error, Debug, Clone)]
+pub enum SessionError {
+    #[error("Session is not active")]
+    NotActive,
+
+    #[error("Invalid state transition from {from} to {to}")]
+    InvalidStateTransition { from: String, to: String },
+
+    #[error("Session already exists: {0}")]
+    SessionAlreadyExists(String),
+
+    #[error("Session not found: {0}")]
+    SessionNotFound(String),
+
+    #[error("Frame decode error: {0}")]
+    FrameDecodeError(String),
+
+    #[error("Frame encode error: {0}")]
+    FrameEncodeError(String),
+
+    #[error("Channel closed")]
+    ChannelClosed,
+
+    #[error("Input simulation error: {0}")]
+    InputError(String),
+
+    #[error("Capture error: {0}")]
+    CaptureError(String),
+
+    #[error("Transport error: {0}")]
+    TransportError(String),
+}
+
 /// Type alias for Results using RemoteDeskError
 pub type Result<T> = std::result::Result<T, RemoteDeskError>;
 
@@ -121,6 +159,9 @@ pub type SecurityResult<T> = std::result::Result<T, SecurityError>;
 
 /// Type alias for Network Results
 pub type NetworkResult<T> = std::result::Result<T, NetworkError>;
+
+/// Type alias for Session Results
+pub type SessionResult<T> = std::result::Result<T, SessionError>;
 
 impl From<bincode::Error> for RemoteDeskError {
     fn from(err: bincode::Error) -> Self {

@@ -19,8 +19,8 @@ mdns-sd = "0.10"            # mDNS for local discovery
 scrap = "0.5"             # Cross-platform screen capture
 rdev = "0.5"              # Input simulation (keyboard and mouse)
 
-# Clipboard (will be added later)
-# arboard = "3.2"           # Cross-platform clipboard
+# Clipboard
+arboard = "3.2"           # Cross-platform clipboard
 
 # Encryption
 rustls = "0.21"

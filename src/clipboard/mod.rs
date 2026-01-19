@@ -1,6 +1,8 @@
 //! Clipboard module for RemoteDesk
 //!
-//! This module will handle cross-platform clipboard synchronization.
-//! Implementation coming in Phase 2.
+//! This module handles cross-platform clipboard synchronization between
+//! host and client sessions.
 
-// Placeholder module - to be implemented
+pub mod sync;
+
+pub use sync::{ClipboardContent, ClipboardMonitor, ClipboardSync};
