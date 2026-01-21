@@ -15,7 +15,8 @@ pub use host::{HostSession, HostSessionConfig, HostSessionStats};
 pub use manager::{ManagedSession, SessionId, SessionInfo, SessionManager, SessionType};
 pub use state::{SessionState, SessionStateMachine, StateTransition};
 pub use transport::{
-    create_loopback_transport, ChannelPair, ClipboardContentType, ControlMessage,
-    SessionTransport, TransportClipboard, TransportFrame, TransportInput, TransportStats,
+    create_loopback_transport, create_quic_transport, ChannelPair, ClipboardContentType,
+    ControlMessage, QuicTransportHandle, SessionTransport, TransportClipboard, TransportError,
+    TransportFrame, TransportInput, TransportResult, TransportStats,
 };
 pub use types::{Session, SessionConfig, SessionMode, SessionStats};

@@ -2,14 +2,18 @@
 //!
 //! This module provides channel-based transport that can be used for:
 //! - Loopback testing (host and client in same process)
-//! - Future QUIC-based networking (replace channels with QUIC streams)
+//! - QUIC-based networking over real network connections
 
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use tokio::sync::mpsc;
+use tracing::{debug, error, info};
 
 use crate::desktop::FrameFormat;
 use crate::input::InputEvent;
+use crate::network::{
+    BiStream, ConnectionRole, Message, QuicConnection, StreamReceiver, StreamSender,
+};
 
 /// Default channel buffer size
 pub const DEFAULT_CHANNEL_BUFFER: usize = 32;
@@ -276,6 +280,310 @@ pub fn create_loopback_transport() -> (SessionTransport, SessionTransport) {
     };
 
     (host_transport, client_transport)
+}
+
+/// Result type for transport operations
+pub type TransportResult<T> = Result<T, TransportError>;
+
+/// Error type for transport operations
+#[derive(Debug, thiserror::Error)]
+pub enum TransportError {
+    #[error("QUIC stream error: {0}")]
+    StreamError(String),
+
+    #[error("Channel closed")]
+    ChannelClosed,
+
+    #[error("Connection error: {0}")]
+    ConnectionError(String),
+}
+
+/// Handle to the background tasks that bridge QUIC streams to channels
+pub struct QuicTransportHandle {
+    /// Task handles for the bridge tasks
+    handles: Vec<tokio::task::JoinHandle<()>>,
+}
+
+impl QuicTransportHandle {
+    /// Aborts all bridge tasks
+    pub fn abort(&self) {
+        for handle in &self.handles {
+            handle.abort();
+        }
+    }
+
+    /// Waits for all bridge tasks to complete
+    pub async fn join(self) {
+        for handle in self.handles {
+            let _ = handle.await;
+        }
+    }
+}
+
+/// Creates a SessionTransport from a QUIC connection
+///
+/// This function opens the necessary QUIC streams and creates bridge tasks
+/// that forward data between the streams and mpsc channels.
+///
+/// # Stream Layout
+/// - Stream 1: Video frames (host → client, unidirectional)
+/// - Stream 2: Input events (client → host, unidirectional)
+/// - Stream 3: Clipboard (bidirectional)
+/// - Control messages use the existing control stream from connection handshake
+///
+/// # Arguments
+///
+/// * `connection` - The established QUIC connection
+/// * `role` - Whether this is the host or client side
+/// * `control_stream` - The control stream from the connection handshake
+///
+/// # Returns
+///
+/// A tuple of (SessionTransport, QuicTransportHandle)
+pub async fn create_quic_transport(
+    connection: QuicConnection,
+    role: ConnectionRole,
+    control_stream: BiStream<Message>,
+) -> TransportResult<(SessionTransport, QuicTransportHandle)> {
+    info!("Creating QUIC transport for {:?} role", role);
+
+    let mut handles = Vec::new();
+
+    // Create channel pairs for the transport
+    let (frame_out_tx, frame_out_rx) = mpsc::channel(FRAME_CHANNEL_BUFFER);
+    let (frame_in_tx, frame_in_rx) = mpsc::channel(FRAME_CHANNEL_BUFFER);
+
+    let (input_out_tx, input_out_rx) = mpsc::channel(DEFAULT_CHANNEL_BUFFER);
+    let (input_in_tx, input_in_rx) = mpsc::channel(DEFAULT_CHANNEL_BUFFER);
+
+    let (clipboard_out_tx, clipboard_out_rx) = mpsc::channel(DEFAULT_CHANNEL_BUFFER);
+    let (clipboard_in_tx, clipboard_in_rx) = mpsc::channel(DEFAULT_CHANNEL_BUFFER);
+
+    let (control_out_tx, control_out_rx) = mpsc::channel(DEFAULT_CHANNEL_BUFFER);
+    let (control_in_tx, control_in_rx) = mpsc::channel(DEFAULT_CHANNEL_BUFFER);
+
+    match role {
+        ConnectionRole::Host => {
+            // Host opens video stream (unidirectional send)
+            let video_send = connection
+                .open_uni()
+                .await
+                .map_err(|e| TransportError::StreamError(e.to_string()))?;
+
+            // Host accepts input stream (unidirectional receive)
+            let input_recv = connection
+                .accept_uni()
+                .await
+                .map_err(|e| TransportError::StreamError(e.to_string()))?;
+
+            // Host opens clipboard stream (bidirectional)
+            let (clipboard_send, clipboard_recv) = connection
+                .open_bi()
+                .await
+                .map_err(|e| TransportError::StreamError(e.to_string()))?;
+
+            // Bridge video frames: channel → QUIC stream
+            let sender: StreamSender<TransportFrame> = StreamSender::new(video_send);
+            handles.push(spawn_channel_to_stream(frame_out_rx, sender));
+
+            // Bridge input: QUIC stream → channel
+            let receiver: StreamReceiver<TransportInput> = StreamReceiver::new(input_recv);
+            handles.push(spawn_stream_to_channel(receiver, input_in_tx));
+
+            // Bridge clipboard both directions
+            let clip_sender: StreamSender<TransportClipboard> = StreamSender::new(clipboard_send);
+            let clip_receiver: StreamReceiver<TransportClipboard> =
+                StreamReceiver::new(clipboard_recv);
+            handles.push(spawn_channel_to_stream(clipboard_out_rx, clip_sender));
+            handles.push(spawn_stream_to_channel(clip_receiver, clipboard_in_tx));
+        }
+        ConnectionRole::Client => {
+            // Client accepts video stream (unidirectional receive)
+            let video_recv = connection
+                .accept_uni()
+                .await
+                .map_err(|e| TransportError::StreamError(e.to_string()))?;
+
+            // Client opens input stream (unidirectional send)
+            let input_send = connection
+                .open_uni()
+                .await
+                .map_err(|e| TransportError::StreamError(e.to_string()))?;
+
+            // Client accepts clipboard stream (bidirectional)
+            let (clipboard_send, clipboard_recv) = connection
+                .accept_bi()
+                .await
+                .map_err(|e| TransportError::StreamError(e.to_string()))?;
+
+            // Bridge video frames: QUIC stream → channel
+            let receiver: StreamReceiver<TransportFrame> = StreamReceiver::new(video_recv);
+            handles.push(spawn_stream_to_channel(receiver, frame_in_tx));
+
+            // Bridge input: channel → QUIC stream
+            let sender: StreamSender<TransportInput> = StreamSender::new(input_send);
+            handles.push(spawn_channel_to_stream(input_out_rx, sender));
+
+            // Bridge clipboard both directions
+            let clip_sender: StreamSender<TransportClipboard> = StreamSender::new(clipboard_send);
+            let clip_receiver: StreamReceiver<TransportClipboard> =
+                StreamReceiver::new(clipboard_recv);
+            handles.push(spawn_channel_to_stream(clipboard_out_rx, clip_sender));
+            handles.push(spawn_stream_to_channel(clip_receiver, clipboard_in_tx));
+        }
+    }
+
+    // Bridge control messages (using the existing control stream)
+    // Note: Control messages use the protocol Message type, but we wrap them
+    // in ControlMessage for the session layer
+    let BiStream { sender, receiver } = control_stream;
+    handles.push(spawn_control_sender(control_out_rx, sender));
+    handles.push(spawn_control_receiver(receiver, control_in_tx));
+
+    let transport = SessionTransport {
+        frames: ChannelPair {
+            tx: frame_out_tx,
+            rx: frame_in_rx,
+        },
+        input: ChannelPair {
+            tx: input_out_tx,
+            rx: input_in_rx,
+        },
+        clipboard: ChannelPair {
+            tx: clipboard_out_tx,
+            rx: clipboard_in_rx,
+        },
+        control: ChannelPair {
+            tx: control_out_tx,
+            rx: control_in_rx,
+        },
+    };
+
+    let handle = QuicTransportHandle { handles };
+
+    info!("QUIC transport created successfully");
+    Ok((transport, handle))
+}
+
+/// Spawns a task that reads from an mpsc channel and writes to a QUIC stream
+fn spawn_channel_to_stream<T>(
+    mut rx: mpsc::Receiver<T>,
+    mut sender: StreamSender<T>,
+) -> tokio::task::JoinHandle<()>
+where
+    T: Serialize + Send + 'static,
+{
+    tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            if let Err(e) = sender.send(msg).await {
+                error!("Failed to send to QUIC stream: {}", e);
+                break;
+            }
+        }
+        debug!("Channel-to-stream bridge closed");
+    })
+}
+
+/// Spawns a task that reads from a QUIC stream and writes to an mpsc channel
+fn spawn_stream_to_channel<T>(
+    mut receiver: StreamReceiver<T>,
+    tx: mpsc::Sender<T>,
+) -> tokio::task::JoinHandle<()>
+where
+    T: serde::de::DeserializeOwned + Send + 'static,
+{
+    tokio::spawn(async move {
+        loop {
+            match receiver.recv().await {
+                Ok(msg) => {
+                    if tx.send(msg).await.is_err() {
+                        debug!("Channel closed, stopping stream bridge");
+                        break;
+                    }
+                }
+                Err(e) => {
+                    debug!("Stream closed or error: {}", e);
+                    break;
+                }
+            }
+        }
+        debug!("Stream-to-channel bridge closed");
+    })
+}
+
+/// Spawns a task that bridges control messages from channel to QUIC stream
+fn spawn_control_sender(
+    mut rx: mpsc::Receiver<ControlMessage>,
+    mut sender: StreamSender<Message>,
+) -> tokio::task::JoinHandle<()> {
+    use crate::network::{MessagePayload, MessageType};
+
+    tokio::spawn(async move {
+        while let Some(ctrl) = rx.recv().await {
+            // Wrap ControlMessage in protocol Message
+            // For now, we'll use Heartbeat for ping/pong and custom handling
+            let msg = match ctrl {
+                ControlMessage::Ping { timestamp_ms } => Message::new(
+                    MessageType::Heartbeat,
+                    MessagePayload::Heartbeat(crate::network::Heartbeat { timestamp: timestamp_ms }),
+                ),
+                ControlMessage::Pong { original_timestamp_ms } => Message::new(
+                    MessageType::Heartbeat,
+                    MessagePayload::Heartbeat(crate::network::Heartbeat {
+                        timestamp: original_timestamp_ms,
+                    }),
+                ),
+                _ => {
+                    // For other control messages, we'd need to extend the protocol
+                    // For now, skip them
+                    continue;
+                }
+            };
+
+            if let Err(e) = sender.send(msg).await {
+                error!("Failed to send control message: {}", e);
+                break;
+            }
+        }
+        debug!("Control sender bridge closed");
+    })
+}
+
+/// Spawns a task that bridges control messages from QUIC stream to channel
+fn spawn_control_receiver(
+    mut receiver: StreamReceiver<Message>,
+    tx: mpsc::Sender<ControlMessage>,
+) -> tokio::task::JoinHandle<()> {
+    use crate::network::MessagePayload;
+
+    tokio::spawn(async move {
+        loop {
+            match receiver.recv().await {
+                Ok(msg) => {
+                    // Convert protocol Message to ControlMessage
+                    let ctrl = match msg.payload {
+                        MessagePayload::Heartbeat(hb) => {
+                            // Could be ping or pong - use as ping for now
+                            ControlMessage::Ping {
+                                timestamp_ms: hb.timestamp,
+                            }
+                        }
+                        _ => continue, // Skip other messages
+                    };
+
+                    if tx.send(ctrl).await.is_err() {
+                        debug!("Control channel closed");
+                        break;
+                    }
+                }
+                Err(e) => {
+                    debug!("Control stream closed or error: {}", e);
+                    break;
+                }
+            }
+        }
+        debug!("Control receiver bridge closed");
+    })
 }
 
 #[cfg(test)]

@@ -66,11 +66,12 @@ impl App {
                 .and_then(|h| h.into_string().ok())
                 .unwrap_or_else(|| format!("RemoteDesk-{}", device_id.as_u32())),
             service_port: config.network.listen_port,
+            config_dir: config_manager.config_directory().clone(),
             password_hash_path: config_manager.password_hash_path(),
             max_connections: config.network.max_connections as usize,
         };
 
-        let connection_manager = ConnectionManager::new(manager_config);
+        let mut connection_manager = ConnectionManager::new(manager_config)?;
 
         // Start connection manager
         if let Err(e) = connection_manager.start().await {
@@ -90,7 +91,7 @@ impl App {
     /// # Errors
     ///
     /// Returns error if application encounters a fatal error
-    async fn run(&self) -> Result<()> {
+    async fn run(&mut self) -> Result<()> {
         info!("RemoteDesk is ready!");
         info!("");
         info!("╔═══════════════════════════════════════════════════╗");
@@ -137,7 +138,7 @@ impl App {
     }
 
     /// Handles CLI input for basic commands
-    async fn handle_cli_input(&self) -> Result<()> {
+    async fn handle_cli_input(&mut self) -> Result<()> {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
         use tokio::io::{stdin, stdout};
 
@@ -186,7 +187,7 @@ impl App {
     }
 
     /// Handles a single command
-    async fn handle_command(&self, input: &str) -> Result<()> {
+    async fn handle_command(&mut self, input: &str) -> Result<()> {
         let parts: Vec<&str> = input.split_whitespace().collect();
 
         if parts.is_empty() {
@@ -435,7 +436,7 @@ async fn main() {
 
     // Initialize and run application
     match App::initialize().await {
-        Ok(app) => {
+        Ok(mut app) => {
             if let Err(e) = app.run().await {
                 error!("Application error: {}", e);
                 std::process::exit(1);
